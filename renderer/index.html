@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; img-src 'self' data: https:;"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FSG Launcher</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brandMark"><img class="brandIcon" src="../assets/brand.png" alt="FSG"/></div>
+      <div class="brandText">
+        <span class="brandName">Fireside</span>
+        <span class="brandAccent">Gaming</span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="navItem active" data-page="home">HOME</button>
+      <button class="navItem" data-page="mods">MODS</button>
+            <button class="navItem" data-page="settings">SETTINGS</button>
+      <button class="navItem" data-page="faq">FAQ</button>
+    </nav>
+
+    <div class="actions">
+      <button class="iconBtn" id="btnRefresh" title="Refresh">↻</button>
+      <button class="iconBtn" id="btnExit" title="Exit">⎋</button>
+    </div>
+  </header>
+
+  <!-- App Update UI -->
+  <div id="updateBar" class="updateBar hidden" role="status" aria-live="polite">
+    <div class="updateLeft">
+      <div class="updateTitle">Launcher Update</div>
+      <div class="updateText" id="updateText">Prüfe auf Updates…</div>
+      <div class="updateMeta" id="updateMeta"></div>
+      <div class="updateProgressWrap hidden" id="updateProgressWrap">
+        <div class="updateProgress" id="updateProgress"></div>
+      </div>
+    </div>
+    <div class="updateActions">
+      <button class="btn" id="btnUpdateCheck">Prüfen</button>
+      <button class="btn green hidden" id="btnUpdateDownload">Download</button>
+      <button class="btn green hidden" id="btnUpdateInstall">Neu starten</button>
+      <button class="btn ghost" id="btnUpdateHide" title="Ausblenden">✕</button>
+    </div>
+  </div>
+
+  <main class="layout">
+    
+    <section class="col left">
+      <div class="card cardPad tsCard">
+        <div class="rowBetween">
+          <div>
+            <div class="cardTitle">Teamspeak</div>
+            <div class="muted">Online: <b id="tsOnline">--</b> / <span id="tsMax">--</span></div>
+          </div>
+          <div class="ringMini"><span id="tsPercent">--%</span></div>
+        </div>
+      </div>
+</section>
+
+
+    <section class="col center">
+      
+      <section class="page active" id="page-home">
+        <div class="card cardPad">
+          <div class="rowBetween">
+            <div class="cardTitle">Willkommen bei Fireside-Gaming</div>
+          </div>
+
+          <div class="quickGrid">
+            <div class="quickCard" data-link="blog" title="Website öffnen">
+              <div class="quickTitle" style="color:#d43b3b;">Infos</div>
+              <div class="quickDesc">Hier erfahrt ihr mehr über unser Team und aktuelle Projekte.</div>
+            </div>
+            <div class="quickCard" data-link="forum" title="Website öffnen">
+              <div class="quickTitle" style="color:#7c4dff;">Forum</div>
+              <div class="quickDesc">Tausche dich mit anderen Spielern aus, bewirb dich für Support & Fraktionen.</div>
+            </div>
+            <div class="quickCard" data-link="discord" title="Website öffnen">
+              <div class="quickTitle" style="color:#5865f2;">Discord</div>
+              <div class="quickDesc">Trete unserem Discord bei: Ankündigungen, Support & Events.</div>
+            </div>
+            <div class="quickCard" data-link="wiki" title="Website öffnen">
+              <div class="quickTitle" style="color:#7bdc68;">Wiki</div>
+              <div class="quickDesc">Im Wiki sind viele nützliche Informationen zu Fireside-Gaming zu finden.</div>
+            </div>
+          </div>
+        </div>      
+        <div class="card cardPad" style="margin-top:14px;">
+          <div class="rowBetween">
+            <div class="cardTitle">Fireside-Gaming auf Twitch</div>
+          </div>
+          <div id="twitchHost" class="twitchHost big"></div>
+        </div>
+
+</section>
+
+
+      <section class="page" id="page-settings">
+        <div class="card cardPad">
+          <div class="cardTitle">Launcher Einstellungen</div>
+
+          <div class="settingsPathRow">
+            <div class="settingsLabel">
+              <div class="muted small">Arma 3 Pfad</div>
+              <div class="settingsPathText" id="armaPathText">–</div>
+            </div>
+            <button class="settingsPickBtn" id="btnPickArma" title="Ordner wählen">📁</button>
+          </div>
+        </div>
+
+      
+  <div class="card cardPad" style="margin-top:14px;">
+    <div class="cardTitle">Arma Einstellungen</div>
+
+<div class="settingsGrid">
+  <div>
+    <div class="muted small">Performance</div>
+
+    <div class="settingLine">
+      <label class="switch">
+        <input type="checkbox" id="optEnableHT">
+        <span class="slider"></span>
+      </label>
+      <label class="settingText" for="optEnableHT">Hyperthreading aktivieren</label>
+    </div>
+
+    <div class="settingLine">
+      <label class="switch">
+        <input type="checkbox" id="optHugePages">
+        <span class="slider"></span>
+      </label>
+      <label class="settingText" for="optHugePages">Große Speicherseiten (hugePages)</label>
+    </div>
+  </div>
+
+  <div>
+    <div class="muted small">Verschiedenes</div>
+
+    <div class="settingLine">
+      <label class="switch">
+        <input type="checkbox" id="optNoPause" checked>
+        <span class="slider"></span>
+      </label>
+      <label class="settingText" for="optNoPause">Spiel nicht im Hintergrund pausieren</label>
+    </div>
+
+    <div class="settingLine">
+      <label class="switch">
+        <input type="checkbox" id="optNoPauseAudio" checked>
+        <span class="slider"></span>
+      </label>
+      <label class="settingText" for="optNoPauseAudio">Audio nicht pausieren</label>
+    </div>
+  </div>
+
+  <div>
+    <div class="muted small">Start</div>
+
+    <div class="settingLine">
+      <label class="switch">
+        <input type="checkbox" id="optNoSplash">
+        <span class="slider"></span>
+      </label>
+      <label class="settingText" for="optNoSplash">Splashscreen überspringen</label>
+    </div>
+
+    <div class="settingLine">
+      <label class="switch">
+        <input type="checkbox" id="optSkipIntro">
+        <span class="slider"></span>
+      </label>
+      <label class="settingText" for="optSkipIntro">Intro überspringen</label>
+    </div>
+
+    <div class="settingLine">
+      <label class="switch">
+        <input type="checkbox" id="optWindow">
+        <span class="slider"></span>
+      </label>
+      <label class="settingText" for="optWindow">Fenstermodus</label>
+    </div>
+  </div>
+
+  <div>
+    <div class="muted small">Debug</div>
+
+    <div class="settingLine">
+      <label class="switch">
+        <input type="checkbox" id="optShowScriptErrors">
+        <span class="slider"></span>
+      </label>
+      <label class="settingText" for="optShowScriptErrors">Skriptfehler anzeigen</label>
+    </div>
+  </div>
+</div>
+
+<div class="settingsPathRow" style="grid-template-columns:1fr; margin-top:10px;">
+  <div class="settingsLabel">
+    <div class="muted small">Weitere Startparameter</div>
+    <input id="optExtraParams" class="moreParamsInput" type="text"
+           placeholder='z.B. -world=empty -nologs -name="FSG"' />
+  </div>
+</div>
+
+<div class="settingsBtnRow">
+  <button class="btn green" id="btnArmaStartSettings">▶ ARMA 3 STARTEN</button>
+  <div class="muted small" id="armaStartHint" style="align-self:center;"></div>
+</div></div>
+
+</section>
+
+      <section class="page" id="page-mods">
+        <div class="hero card" id="modsHeroCard">
+          <div class="heroTop">
+            <div class="badge red" id="modsStatusBadge">Nicht installiert</div>
+            <div style="display:flex; gap:10px;">
+              <button class="miniIcon" id="btnModsFolder" title="Zielordner öffnen">📁</button>
+            </div>
+          </div>
+
+          <div class="heroImage "></div>
+
+          <div class="heroBottom">
+            <div class="heroTitle">Fireside-Gaming: Lakdeside</div>
+
+            <div class="heroBtns">
+              <button class="btn green" id="btnModsDownload">⬇ DOWNLOAD</button>
+              <button class="btn purple" id="btnModsCheck">🧾 PRÜFEN</button>
+            </div>
+
+            <div class="modsProgressWrap" id="modsProgressWrap" style="display:none;">
+              <div class="modsProgressTop">
+                <div class="muted small" id="modsProgressText">Vorbereitung…</div>
+                <button class="btn" id="btnModsCancel" style="height:30px; padding:0 10px;">✖</button>
+              </div>
+              <div class="modsBar"><div class="modsBarFill" id="modsBarFill"></div></div>
+              <div class="modsStats muted small" id="modsStats">0 / 0 Dateien • 0 MB / 0 MB</div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+
+<section class="page" id="page-faq">
+  <div class="faqList">
+    <details class="faqItem">
+      <summary>
+        <span>Ich habe &quot;You were kicked off the game.&quot; – was tun?</span>
+        <span class="chev">▾</span>
+      </summary>
+      <div class="faqBody">
+        <ul>
+          <li>Auf der <b>MODS</b>-Seite auf <b>Prüfen</b> klicken und ggf. Updates laden.</li>
+          <li>Arma 3 einmal starten, dann beenden (damit Profile/Cache sauber angelegt sind).</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="faqItem">
+      <summary>
+        <span>Connection failed / BattlEye / Session lost – was kann ich prüfen?</span>
+        <span class="chev">▾</span>
+      </summary>
+      <div class="faqBody">
+        <p>Das deutet fast immer auf fehlende/alte Missionsdateien oder falsche Mods hin.</p>
+        <ul>
+          <li>Mods <b>prüfen</b> und Updates herunterladen.</li>
+          <li>Arma 3 neu starten und erneut verbinden.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="faqItem">
+      <summary>
+        <span>Ein Bug im Launcher! Was nun?</span>
+        <span class="chev">▾</span>
+      </summary>
+      <div class="faqBody">
+        <p>Melde deinen Bug im <a href="#" data-external="discordBugtracker">Discord Bugtracker</a>.</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+    
+    </section>
+
+    <section class="col right">
+      <div class="card cardPad">
+        <div class="cardTitle">Letztes Update</div>
+        <div class="kvSmall"><b id="lastUpdateValue">–</b></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="./renderer.js"></script>
+
+  <button id="globalArmaStartBtn" class="btn green global-arma-start">▶ ARMA 3 STARTEN</button>
+</body>
+
+</html>
