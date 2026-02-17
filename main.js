@@ -1028,10 +1028,16 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", ()=>{ if(process.platform!=="darwin") app.quit(); });
 
 
-function resolveArmaExe(armaPath){
+function resolveArmaExe(armaPath, { preferBattleyeLauncher = false } = {}){
   if (!armaPath) return null;
   try{
-    // Only use main executables, not arma3battleye.exe
+    // If BattlEye is enabled, prefer the official BattlEye launcher.
+    // This tends to avoid "BattlEye: Game restart required" issues caused by BE setup/update state.
+    if (preferBattleyeLauncher){
+      const be = path.join(armaPath, "arma3battleye.exe");
+      if (fs.existsSync(be)) return be;
+    }
+
     const x64 = path.join(armaPath, "arma3_x64.exe");
     if (fs.existsSync(x64)) return x64;
 
@@ -1067,10 +1073,10 @@ ipcMain.handle("arma:start", async (_e, payload)=>{
       const d=detectArmaPath();
       if (d){ s.armaPath=d; saveSettings(s); }
     }
-    const exe = resolveArmaExe(s.armaPath);
+    const options = payload?.options || s.armaOptions || {};
+    const exe = resolveArmaExe(s.armaPath, { preferBattleyeLauncher: !!options.beservice });
     if (!exe) return {ok:false, error:"Arma 3 Pfad ist nicht gesetzt oder arma3_x64.exe wurde nicht gefunden."};
 
-    const options = payload?.options || s.armaOptions || {};
     const mod = payload?.mod || "@FiresideGaming_Test";
     const args=[];
 
@@ -1082,10 +1088,11 @@ ipcMain.handle("arma:start", async (_e, payload)=>{
     if (options.noPause) args.push("-noPause");
     if (options.noPauseAudio) args.push("-noPauseAudio");
     if (options.showScriptErrors) args.push("-showScriptErrors");
-    if (options.beservice) args.push("-beservice");
     if (mod) args.push(`-mod=${mod}`);
-
     args.push(...splitArgs(options.extraParams || ""));
+
+    // Must be last
+    if (options.beservice) args.push("-beservice");
 
     spawn(exe, args, {detached:true, stdio:"ignore"}).unref();
     return {ok:true};
