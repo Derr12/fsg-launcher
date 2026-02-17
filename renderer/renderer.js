@@ -14,6 +14,20 @@ function sendTwitchBounds(){
 }
 window.addEventListener("resize", () => setTimeout(sendTwitchBounds, 80));
 
+// Main process may request a bounds refresh (e.g., fullscreen toggle)
+try{
+  window.launcher?.onTwitchRequestBounds?.(() => setTimeout(sendTwitchBounds, 50));
+}catch{}
+
+// Fullscreen: make Twitch host bigger via CSS and refresh bounds
+try{
+  window.launcher?.onFullscreenChanged?.((payload) => {
+    const fs = !!payload?.fullscreen;
+    document.body.classList.toggle("isFullscreen", fs);
+    setTimeout(sendTwitchBounds, 80);
+  });
+}catch{}
+
 // Navigation
 const navButtons = Array.from(document.querySelectorAll(".navItem"));
 const pages = {
@@ -190,6 +204,7 @@ async function loadSettings(){
     set("optHugePages", o.hugePages);
     set("optNoPauseAudio", (o.noPauseAudio ?? true));
     set("optShowScriptErrors", o.showScriptErrors);
+    set("optBeservice", (o.beservice ?? true));
     const extra=document.getElementById("optExtraParams");
     if (extra) extra.value = o.extraParams || "";
   }
@@ -277,6 +292,20 @@ wireExternalAnchors();
 // ensure twitch on startup (HOME)
 try{ window.launcher?.twitchSetVisible?.(true); setTimeout(sendTwitchBounds, 200); }catch{}
 
+// Twitch offline placeholder (show image when no allowed live stream)
+(function wireTwitchOfflinePlaceholder(){
+  const host = document.getElementById("twitchHost");
+  if (!host) return;
+  // default to offline until main process tells us otherwise
+  host.classList.add("offline");
+
+  if (!window.launcher?.onTwitchStatus) return;
+  window.launcher.onTwitchStatus((payload) => {
+    const live = !!payload?.live;
+    host.classList.toggle("offline", !live);
+  });
+})();
+
 
 
 // ---------------- Teamspeak polling (API) ----------------
@@ -284,6 +313,9 @@ async function updateTeamspeak(){
   const onlineEl = document.getElementById("tsOnline");
   const maxEl = document.getElementById("tsMax");
   const pctEl = document.getElementById("tsPercent");
+  const ringEl = pctEl?.closest?.(".ringMini") || document.querySelector(".ringMini");
+
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
   try{
     if (!window.launcher?.teamspeakGetStatus) return;
@@ -298,6 +330,11 @@ async function updateTeamspeak(){
     const pct = (max > 0) ? Math.round((online / max) * 100) : 0;
     if (pctEl) pctEl.textContent = `${pct}%`;
 
+    if (ringEl){
+      ringEl.style.setProperty("--p", String(clamp(pct, 0, 100)));
+      ringEl.style.setProperty("--ringColor", "var(--accent)");
+    }
+
     // clear error highlight
     const card = document.querySelector(".tsCard");
     if (card) card.classList.remove("tsError");
@@ -307,6 +344,10 @@ async function updateTeamspeak(){
     if (onlineEl) onlineEl.textContent = "--";
     if (maxEl) maxEl.textContent = "--";
     if (pctEl) pctEl.textContent = "--";
+    if (ringEl){
+      ringEl.style.setProperty("--p", "0");
+      ringEl.style.setProperty("--ringColor", "rgba(255,255,255,.35)");
+    }
     const card = document.querySelector(".tsCard");
     if (card) card.classList.add("tsError");
   }
@@ -580,10 +621,11 @@ function readArmaOptionsFromUI(){
     skipIntro: !!document.getElementById("optSkipIntro")?.checked,
     window: !!document.getElementById("optWindow")?.checked,
     enableHT: !!document.getElementById("optEnableHT")?.checked,
-        hugePages: !!document.getElementById("optHugePages")?.checked,
-        noPause: !!document.getElementById("optNoPause")?.checked,
-        noPauseAudio: !!document.getElementById("optNoPauseAudio")?.checked,
+    hugePages: !!document.getElementById("optHugePages")?.checked,
+    noPause: !!document.getElementById("optNoPause")?.checked,
+    noPauseAudio: !!document.getElementById("optNoPauseAudio")?.checked,
     showScriptErrors: !!document.getElementById("optShowScriptErrors")?.checked,
+    beservice: !!document.getElementById("optBeservice")?.checked,
     extraParams: (document.getElementById("optExtraParams")?.value || "").trim()
   };
 }
@@ -619,7 +661,8 @@ async function startArma(mod){
 const btnArma = document.getElementById("btnArmaStartSettings");
 if (btnArma) btnArma.addEventListener("click", ()=> startArma("@FiresideGaming_Test"));
 
-["optNoSplash","optSkipIntro","optWindow","optEnableHT","optHugePages","optNoPause","optNoPauseAudio","optShowScriptErrors","optExtraParams"]
+
+["optNoSplash","optSkipIntro","optWindow","optEnableHT","optHugePages","optNoPause","optNoPauseAudio","optShowScriptErrors","optBeservice","optExtraParams"]
   .map(id=>document.getElementById(id))
   .filter(Boolean)
   .forEach(el=>{
@@ -644,6 +687,9 @@ async function applyArmaDefaults(){
     // performance defaults should be OFF unless user explicitly enables them later
     if (opts.enableHT !== false) { opts.enableHT = false; changed = true; }
     if (opts.hugePages !== false) { opts.hugePages = false; changed = true; }
+
+    // beservice soll bei jedem Start true sein, außer der Nutzer schaltet es aktiv aus (Checkbox)
+    if (opts.beservice !== true) { opts.beservice = true; changed = true; }
 
     if (changed && window.launcher.settingsSetArmaOptions){
       await window.launcher.settingsSetArmaOptions(opts);

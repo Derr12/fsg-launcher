@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld("launcher", {
   getConfig: () => ipcRenderer.invoke("config:get"),
   twitchSetBounds: (rect) => ipcRenderer.send("twitch:setBounds", rect),
   twitchSetVisible: (visible) => ipcRenderer.send("twitch:setVisible", !!visible),
+  onTwitchStatus: (cb) => ipcRenderer.on("twitch:status", (_e, data) => cb(data)),
+  onTwitchRequestBounds: (cb) => ipcRenderer.on("twitch:requestBounds", () => cb()),
+  onFullscreenChanged: (cb) => ipcRenderer.on("ui:fullscreen", (_e, data) => cb(data)),
 
   // Mods FTP download
   modsPing: () => ipcRenderer.invoke("mods:ping"),

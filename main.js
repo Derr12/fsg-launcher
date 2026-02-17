@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const { execFileSync } = require("child_process");
 const http = require("http");
+const https = require("https");
 const ftp = require("basic-ftp");
 
 // ---------------- config ----------------
@@ -73,6 +74,179 @@ function getLocalAppData(){
 
 let win;
 let twitchView=null;
+let currentAutoChannel = null;
+let twitchDesiredVisible = false;
+
+const REQUIRED_TWITCH_GAME = "Arma 3";
+
+function sendTwitchStatus(){
+  try{
+    if (win && !win.isDestroyed()){
+      win.webContents.send("twitch:status", {
+        live: !!currentAutoChannel,
+        channel: currentAutoChannel,
+        requiredGame: REQUIRED_TWITCH_GAME
+      });
+    }
+  }catch{}
+}
+
+function buildTwitchUrl(channel){
+  const parent = String(config?.twitch?.parent || "localhost");
+  return `https://player.twitch.tv/?channel=${encodeURIComponent(channel)}&parent=${encodeURIComponent(parent)}&muted=true&autoplay=true`;
+}
+
+function httpRequest(url, { method = "GET", headers = {}, body = null, timeoutMs = 15000 } = {}){
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const lib = u.protocol === "https:" ? https : http;
+    const req = lib.request({
+      protocol: u.protocol,
+      hostname: u.hostname,
+      port: u.port || (u.protocol === "https:" ? 443 : 80),
+      path: u.pathname + (u.search || ""),
+      method,
+      headers,
+    }, (res) => {
+      const chunks = [];
+      res.on("data", (d) => chunks.push(d));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, text });
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error("timeout")));
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+async function fetchChannelListFromTextApi(){
+  const url = String(config?.twitch?.apiUrl || "").trim();
+  const fallback = String(config?.twitch?.defaultChannel || config?.twitch?.channel || "derr12_").trim().toLowerCase();
+  if (!url) return [fallback].filter(Boolean);
+
+  const res = await httpRequest(url, { headers:{ "Accept":"text/plain,*/*" }, timeoutMs: 8000 });
+  if (!res.ok) return [fallback].filter(Boolean);
+
+  const lines = String(res.text || "")
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith("#") && !l.startsWith("//"))
+    .map(l => l.toLowerCase());
+
+  const seen = new Set();
+  const out = [];
+  for (const c of lines){
+    if (seen.has(c)) continue;
+    seen.add(c);
+    out.push(c);
+  }
+  return out.length ? out : [fallback].filter(Boolean);
+}
+
+let twitchAppToken = null;
+let twitchAppTokenExp = 0;
+
+async function getTwitchAppAccessToken(){
+  const now = Date.now();
+  if (twitchAppToken && (twitchAppTokenExp - now) > 60_000) return twitchAppToken;
+
+  const clientId = String(process.env.TWITCH_CLIENT_ID || config?.twitch?.clientId || "").trim();
+  const clientSecret = String(process.env.TWITCH_CLIENT_SECRET || config?.twitch?.clientSecret || "").trim();
+  if (!clientId || !clientSecret || clientId.startsWith("DEIN_") || clientSecret.startsWith("DEIN_")) return null;
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    grant_type: "client_credentials",
+  }).toString();
+
+  const res = await httpRequest("https://id.twitch.tv/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+    timeoutMs: 12000
+  });
+  if (!res.ok) return null;
+
+  const data = JSON.parse(res.text);
+  twitchAppToken = data.access_token;
+  twitchAppTokenExp = Date.now() + (Number(data.expires_in || 0) * 1000);
+  return twitchAppToken;
+}
+
+async function getLiveStreams(userLogins){
+  const token = await getTwitchAppAccessToken();
+  if (!token) return null;
+  const clientId = String(process.env.TWITCH_CLIENT_ID || config?.twitch?.clientId || "").trim();
+
+  const u = new URL("https://api.twitch.tv/helix/streams");
+  for (const login of userLogins.slice(0, 100)) u.searchParams.append("user_login", login);
+
+  const res = await httpRequest(u.toString(), {
+    headers: {
+      "Client-Id": clientId,
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/json"
+    },
+    timeoutMs: 12000
+  });
+  if (!res.ok) return null;
+  const data = JSON.parse(res.text);
+  return Array.isArray(data?.data) ? data.data : [];
+}
+
+function pickBestLiveChannel(streams){
+  if (!streams || !streams.length) return null;
+  streams.sort((a,b) => (b.viewer_count || 0) - (a.viewer_count || 0));
+  return String(streams[0].user_login || "").toLowerCase() || null;
+}
+
+function filterStreamsByGameName(streams, requiredGameName){
+  const want = String(requiredGameName || "").trim().toLowerCase();
+  if (!want) return Array.isArray(streams) ? streams : [];
+  return (Array.isArray(streams) ? streams : []).filter(s => {
+    const g = String(s?.game_name || "").trim().toLowerCase();
+    return g === want;
+  });
+}
+
+async function updateAutoTwitchChannel(){
+  try{
+    const channels = await fetchChannelListFromTextApi();
+    const streams = await getLiveStreams(channels);
+    if (!streams) return;
+
+    const filtered = filterStreamsByGameName(streams, REQUIRED_TWITCH_GAME);
+    const livePick = pickBestLiveChannel(filtered);
+    const target = livePick || null;
+
+    if (currentAutoChannel !== target){
+      currentAutoChannel = target;
+      sendTwitchStatus();
+
+      if (!currentAutoChannel){
+        try{ if (win && twitchView) win.removeBrowserView(twitchView); }catch{}
+        return;
+      }
+
+      const url = buildTwitchUrl(currentAutoChannel);
+
+      // Only attach the BrowserView if the UI currently wants it visible (Home tab).
+      if (twitchDesiredVisible){
+        const view = ensureTwitchView();
+        if (view) view.webContents.loadURL(url);
+      } else {
+        // If view already exists, keep it updated without forcing visibility.
+        if (twitchView) twitchView.webContents.loadURL(url);
+      }
+    }
+  }catch{
+    // keep last
+  }
+}
 
 // ---------------- App Auto-Update (GitHub Releases via electron-updater) ----------------
 function sendUpdateStatus(payload){
@@ -118,15 +292,43 @@ function createWindow(){
   });
   win.removeMenu();
   win.loadFile(path.join(__dirname,"renderer","index.html"));
+
+  win.webContents.on("did-finish-load", () => {
+    sendTwitchStatus();
+    try{ win.webContents.send("ui:fullscreen", { fullscreen: !!(win.isFullScreen() || win.isMaximized()) }); }catch{}
+  });
+
+  // Fullscreen/resize can desync BrowserView bounds; request fresh bounds from renderer.
+  const requestBounds = () => {
+    try{ if (win && !win.isDestroyed()) win.webContents.send("twitch:requestBounds"); }catch{}
+  };
+  win.on("resize", () => setTimeout(requestBounds, 50));
+  win.on("enter-full-screen", () => {
+    try{ win.webContents.send("ui:fullscreen", { fullscreen: true }); }catch{}
+    setTimeout(requestBounds, 80);
+  });
+  win.on("leave-full-screen", () => {
+    try{ win.webContents.send("ui:fullscreen", { fullscreen: !!win.isMaximized() }); }catch{}
+    setTimeout(requestBounds, 80);
+  });
+
+  // On Windows users often mean "vollbild" == maximized
+  win.on("maximize", () => {
+    try{ win.webContents.send("ui:fullscreen", { fullscreen: true }); }catch{}
+    setTimeout(requestBounds, 80);
+  });
+  win.on("unmaximize", () => {
+    try{ win.webContents.send("ui:fullscreen", { fullscreen: !!win.isFullScreen() }); }catch{}
+    setTimeout(requestBounds, 80);
+  });
 }
 
 function ensureTwitchView(){
   if (!win) return null;
   if (twitchView) return twitchView;
 
-  const channel = String(config?.twitch?.channel || "derr12_");
-  const parent = String(config?.twitch?.parent || "localhost");
-  const url = `https://player.twitch.tv/?channel=${encodeURIComponent(channel)}&parent=${encodeURIComponent(parent)}&muted=true&autoplay=true`;
+  const channel = String(currentAutoChannel || "").trim().toLowerCase();
+  const url = channel ? buildTwitchUrl(channel) : "about:blank";
 
   twitchView = new BrowserView({
     webPreferences: {
@@ -143,6 +345,8 @@ function ensureTwitchView(){
 }
 
 ipcMain.on("twitch:setBounds", (_evt, rect) => {
+  if (!currentAutoChannel) return;
+  if (!twitchDesiredVisible) return;
   const view = ensureTwitchView();
   if (!view) return;
   const { x, y, width, height } = rect || {};
@@ -153,12 +357,21 @@ ipcMain.on("twitch:setBounds", (_evt, rect) => {
 
 ipcMain.on("twitch:setVisible", (_evt, visible) => {
   if (!win) return;
+  twitchDesiredVisible = !!visible;
   if (!visible) {
     if (twitchView) win.removeBrowserView(twitchView);
     return;
   }
+
+  if (!currentAutoChannel){
+    if (twitchView) win.removeBrowserView(twitchView);
+    sendTwitchStatus();
+    return;
+  }
+
   const view = ensureTwitchView();
   if (view && !win.getBrowserViews().includes(view)) win.setBrowserView(view);
+  sendTwitchStatus();
 });
 
 
@@ -231,13 +444,15 @@ ipcMain.handle("settings:get", async ()=>{
     const d=detectArmaPath();
     if(d){ s.armaPath=d; saveSettings(s); }
   }
+  // beservice soll standardmäßig true sein, falls nicht gesetzt
+  if (!s.armaOptions) s.armaOptions = {};
+  if (typeof s.armaOptions.beservice === "undefined") s.armaOptions.beservice = true;
   return {ok:true, settings:s};
 });
 ipcMain.handle("settings:setArmaOptions", async (_e, opts)=>{
   const s=getSettings();
-  const defaults = { noPause:true, noPauseAudio:true, enableHT:false, hugePages:false };
-s.armaOptions = Object.assign(defaults, s.armaOptions || {}, opts || {});
-
+  const defaults = { noPause:true, noPauseAudio:true, enableHT:false, hugePages:false, beservice:true };
+  s.armaOptions = Object.assign(defaults, s.armaOptions || {}, opts || {});
   saveSettings(s);
   return {ok:true};
 });
@@ -795,6 +1010,11 @@ app.whenReady().then(async () => {
   setupAutoUpdater();
   createWindow();
 
+  // Auto-select live Twitch channel (no dropdown)
+  updateAutoTwitchChannel();
+  const intervalSec = Number(config?.twitch?.liveCheckIntervalSec || 60);
+  setInterval(updateAutoTwitchChannel, Math.max(15, intervalSec) * 1000);
+
   // Auto-check for updates on startup (only in installed/packaged builds)
   if (app.isPackaged){
     try{
@@ -811,11 +1031,7 @@ app.on("window-all-closed", ()=>{ if(process.platform!=="darwin") app.quit(); })
 function resolveArmaExe(armaPath){
   if (!armaPath) return null;
   try{
-    // BattlEye Launcher (Priorität!)
-    const be = path.join(armaPath, "arma3battleye.exe");
-    if (fs.existsSync(be)) return be;
-
-    // Fallbacks
+    // Only use main executables, not arma3battleye.exe
     const x64 = path.join(armaPath, "arma3_x64.exe");
     if (fs.existsSync(x64)) return x64;
 
@@ -862,10 +1078,11 @@ ipcMain.handle("arma:start", async (_e, payload)=>{
     if (options.skipIntro) args.push("-skipIntro");
     if (options.window) args.push("-window");
     if (options.enableHT) args.push("-enableHT");
-        if (options.hugePages) args.push("-hugePages");
-        if (options.noPause) args.push("-noPause");
-        if (options.noPauseAudio) args.push("-noPauseAudio");
+    if (options.hugePages) args.push("-hugePages");
+    if (options.noPause) args.push("-noPause");
+    if (options.noPauseAudio) args.push("-noPauseAudio");
     if (options.showScriptErrors) args.push("-showScriptErrors");
+    if (options.beservice) args.push("-beservice");
     if (mod) args.push(`-mod=${mod}`);
 
     args.push(...splitArgs(options.extraParams || ""));

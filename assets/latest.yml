@@ -1,8 +1,8 @@
-version: 0.1.1
+version: 0.1.2
 files:
-  - url: FSG Launcher Setup 0.1.1.exe
-    sha512: KEKCtHW/ERyR5JvealJu/oxoJjCX6llXalNivYXdJRhJ1YNNzB8amlB1yXIkRJb0g5F6DbB76vX0sFt2QrxSYw==
-    size: 77452494
-path: FSG Launcher Setup 0.1.1.exe
-sha512: KEKCtHW/ERyR5JvealJu/oxoJjCX6llXalNivYXdJRhJ1YNNzB8amlB1yXIkRJb0g5F6DbB76vX0sFt2QrxSYw==
-releaseDate: '2026-01-31T17:29:01.951Z'
+  - url: FSG-Launcher-Setup-0.1.2.exe
+    sha512: ikgoyad4bnN2rJ3KndX8G6yDZRpyAVDK7vmpvKMlNmz4vQECCPmRlc8G8fzk5QEbt2O14hO7hIE5oqM0huat6w==
+    size: 78754385
+path: FSG-Launcher-Setup-0.1.2.exe
+sha512: ikgoyad4bnN2rJ3KndX8G6yDZRpyAVDK7vmpvKMlNmz4vQECCPmRlc8G8fzk5QEbt2O14hO7hIE5oqM0huat6w==
+releaseDate: '2026-02-17T16:56:50.154Z'

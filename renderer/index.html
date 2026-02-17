@@ -25,8 +25,12 @@
     </nav>
 
     <div class="actions">
-      <button class="iconBtn" id="btnRefresh" title="Refresh">↻</button>
-      <button class="iconBtn" id="btnExit" title="Exit">⎋</button>
+      <button class="iconBtn" id="btnRefresh" title="Refresh" aria-label="Refresh">
+        <img src="../assets/refresh.svg" alt="" aria-hidden="true" />
+      </button>
+      <button class="iconBtn" id="btnExit" title="Exit" aria-label="Exit">
+        <img src="../assets/exit.svg" alt="" aria-hidden="true" />
+      </button>
     </div>
   </header>
 
@@ -183,6 +187,14 @@
         <span class="slider"></span>
       </label>
       <label class="settingText" for="optWindow">Fenstermodus</label>
+    </div>
+
+    <div class="settingLine">
+      <label class="switch">
+        <input type="checkbox" id="optBeservice" checked>
+        <span class="slider"></span>
+      </label>
+      <label class="settingText" for="optBeservice">Battleye (beservice) aktivieren/deaktivieren</label>
     </div>
   </div>
 
