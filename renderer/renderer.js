@@ -374,6 +374,102 @@ function wireMods(){
   const modsHero = document.getElementById("modsHeroCard");
   const btnFolder = document.getElementById("btnModsFolder");
 
+  // Update-Details Panel (nur sichtbar wenn ein Update verfügbar ist)
+  const updDetails = document.getElementById("modsUpdateDetails");
+  const updMeta = document.getElementById("modsUpdateSummaryMeta");
+  const updHint = document.getElementById("modsUpdateHint");
+  const updGroupDl = document.getElementById("modsUpdateGroupDownloads");
+  const updGroupDel = document.getElementById("modsUpdateGroupDeletes");
+  const updListDl = document.getElementById("modsUpdateListDownloads");
+  const updListDel = document.getElementById("modsUpdateListDeletes");
+
+  function fmtSize(bytes){
+    const b = Number(bytes||0);
+    if (!b) return "";
+    const mb = b/1024/1024;
+    if (mb >= 1) return `${mb.toFixed(1)} MB`;
+    const kb = b/1024;
+    return `${Math.max(1, Math.round(kb))} KB`;
+  }
+
+  function clearList(el){
+    if (!el) return;
+    el.innerHTML = "";
+  }
+
+  function hideUpdateDetails(){
+    if (!updDetails) return;
+    updDetails.classList.add("hidden");
+    updDetails.open = false; // standardmäßig eingeklappt
+    if (updMeta) updMeta.textContent = "–";
+    if (updHint) updHint.textContent = "";
+    clearList(updListDl);
+    clearList(updListDel);
+  }
+
+  
+  function fileNameOnly(p){
+    const s = String(p || "");
+    // split on both / and \ (Windows)
+    // IMPORTANT: escape backslash inside a JS regex literal character class
+    // This splits on one-or-more of '/' or '\\'
+    const parts = s.split(/[\/\\]+/);
+    return parts[parts.length - 1] || s;
+  }
+
+  function renderList(el, items, kind){
+    if (!el) return;
+    clearList(el);
+    for (const it of (items || [])){
+      const li = document.createElement("li");
+      const rel = it?.relativePath ?? it?.rel ?? it?.path ?? "";
+      li.textContent = fileNameOnly(rel);
+
+      // Farben: geändert = orange, gelöscht = rot
+      if (kind === "changed") li.classList.add("fileChanged");
+      if (kind === "deleted") li.classList.add("fileDeleted");
+
+      el.appendChild(li);
+    }
+  }
+
+  function showUpdateDetailsFromResult(res){
+    if (!updDetails) return;
+
+    const planned = Array.isArray(res?.plannedList) ? res.plannedList : [];
+    const stale = Array.isArray(res?.staleList) ? res.staleList : [];
+
+    const plannedFiles = Number(res?.plannedFiles ?? planned.length ?? 0);
+    const plannedBytes = Number(res?.plannedBytes ?? 0);
+    const staleFiles = Number(res?.staleFiles ?? stale.length ?? 0);
+    const staleBytes = Number(res?.staleBytes ?? 0);
+
+    const actionNeeded = (plannedFiles > 0) || (staleFiles > 0);
+
+    if (!actionNeeded){
+      hideUpdateDetails();
+      return;
+    }
+
+    updDetails.classList.remove("hidden");
+    updDetails.open = false; // standardmäßig eingeklappt
+
+    const metaParts = [];
+    if (plannedFiles > 0) metaParts.push(`${plannedFiles} Datei(en) • ${fmtSize(plannedBytes)}`);
+    if (staleFiles > 0) metaParts.push(`${staleFiles} Datei(en) werden gelöscht • ${fmtSize(staleBytes)}`);
+    if (updMeta) updMeta.textContent = metaParts.join(" • ");
+
+    if (updHint){
+      updHint.textContent = "Beim Download werden diese Dateien aktualisiert bzw. entfernt (Bereinigung).";
+    }
+
+    if (updGroupDl) updGroupDl.style.display = plannedFiles > 0 ? "block" : "none";
+    if (updGroupDel) updGroupDel.style.display = staleFiles > 0 ? "block" : "none";
+
+    renderList(updListDl, planned.slice(0, 400), "changed");
+    renderList(updListDel, stale.slice(0, 400), "deleted");
+  }
+
   let lastPlannedFiles = null;
   let lastPlannedBytes = null;
   let lastActionNeeded = null;
@@ -453,6 +549,9 @@ function wireMods(){
       lastPlannedFiles = plannedFiles + staleFiles;
       lastPlannedBytes = plannedBytes + staleBytes;
 
+      // Update-Details anzeigen (unten auf der MODS-Seite)
+      try{ showUpdateDetailsFromResult(res); }catch{}
+
       if (btnDl) btnDl.disabled = !lastActionNeeded;
     });
   }
@@ -498,6 +597,7 @@ function wireMods(){
         const staleTxt = staleFiles > 0 ? ` • ${staleFiles} veraltet (wird beim Download gelöscht)` : "";
 
         if (!actionNeeded){
+          try{ hideUpdateDetails(); }catch{}
           text.textContent = "Alles aktuell ✅";
           badge.textContent = "Aktuell";
           badge.classList.remove("red","orange");
@@ -537,6 +637,7 @@ function wireMods(){
       if (p.stage === "done"){
         fill.style.width = "100%";
         text.textContent = p.upToDate ? "Schon aktuell ✅" : "Fertig ✅";
+        try{ hideUpdateDetails(); }catch{}
         badge.textContent = "Installiert";
         // After a successful run, switch to "ok" state (green)
         // even if we previously showed "update available" (orange).
@@ -567,6 +668,8 @@ function wireMods(){
           const plannedFiles = Number(res.plannedFiles ?? res.planned?.length ?? 0);
           const staleFiles = Number(res.staleFiles ?? 0);
           const actionNeeded = (plannedFiles > 0) || (staleFiles > 0);
+
+          try{ showUpdateDetailsFromResult(res); }catch{}
 
           if (!actionNeeded){
             badge.textContent = "Aktuell";
@@ -684,9 +787,10 @@ async function applyArmaDefaults(){
     if (opts.noPause !== true) { opts.noPause = true; changed = true; }
     if (opts.noPauseAudio !== true) { opts.noPauseAudio = true; changed = true; }
 
-    // performance defaults should be OFF unless user explicitly enables them later
-    if (opts.enableHT !== false) { opts.enableHT = false; changed = true; }
-    if (opts.hugePages !== false) { opts.hugePages = false; changed = true; }
+    // performance defaults should be OFF only if the user has never chosen a value
+    // (do NOT overwrite user choice on every launcher start)
+    if (typeof opts.enableHT !== "boolean") { opts.enableHT = false; changed = true; }
+    if (typeof opts.hugePages !== "boolean") { opts.hugePages = false; changed = true; }
 
     // beservice soll bei jedem Start true sein, außer der Nutzer schaltet es aktiv aus (Checkbox)
     if (opts.beservice !== true) { opts.beservice = true; changed = true; }

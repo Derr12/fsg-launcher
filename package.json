@@ -1,6 +1,6 @@
 {
   "name": "fsg-launcher",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Fireside Gaming Launcher",
   "main": "main.js",
   "author": "Fireside Gaming",
@@ -23,21 +23,25 @@
     "appId": "de.firesidegaming.launcher",
     "productName": "FSG Launcher",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "**/*"
     ],
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "FSG Launcher"
+      "shortcutName": "FSG Launcher",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico"
     },
     "publish": [
       {
@@ -45,6 +49,7 @@
         "owner": "Derr12",
         "repo": "fsg-launcher"
       }
-    ]
+    ],
+    "artifactName": "${productName}-Setup-${version}-${arch}.exe"
   }
 }

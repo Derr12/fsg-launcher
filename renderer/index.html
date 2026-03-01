@@ -238,7 +238,7 @@
           <div class="heroImage "></div>
 
           <div class="heroBottom">
-            <div class="heroTitle">Fireside-Gaming: Lakdeside</div>
+            <div class="heroTitle">Fireside-Gaming: Lakeside</div>
 
             <div class="heroBtns">
               <button class="btn green" id="btnModsDownload">⬇ DOWNLOAD</button>
@@ -256,6 +256,30 @@
 
           </div>
         </div>
+
+
+        <!-- Mod Update Details (only visible when an update is available) -->
+        <details id="modsUpdateDetails" class="modsUpdateDetails hidden">
+          <summary class="modsUpdateSummary">
+            <span class="modsUpdateSummaryTitle">Update-Details</span>
+            <span class="modsUpdateSummaryMeta" id="modsUpdateSummaryMeta">–</span>
+            <span class="modsUpdateChev">▾</span>
+          </summary>
+          <div class="modsUpdateBody">
+            <div class="modsUpdateHint muted small" id="modsUpdateHint"></div>
+
+            <div class="modsUpdateGroup" id="modsUpdateGroupDownloads">
+              <div class="modsUpdateGroupTitle">⬇ Wird aktualisiert</div>
+              <ul class="modsUpdateList" id="modsUpdateListDownloads"></ul>
+            </div>
+
+            <div class="modsUpdateGroup" id="modsUpdateGroupDeletes">
+              <div class="modsUpdateGroupTitle">🧹 Wird gelöscht</div>
+              <ul class="modsUpdateList" id="modsUpdateListDeletes"></ul>
+            </div>
+          </div>
+        </details>
+
       </section>
 
 

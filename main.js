@@ -804,8 +804,9 @@ function findStaleLocalFiles(localBase, expectedRelSet){
   for (const rel of localFiles){
     if (!expectedRelSet.has(rel)){
       const full = path.join(localBase, rel.split("/").join(path.sep));
-      stale.push({ rel, full });
-      try{ staleBytes += fs.statSync(full).size || 0; }catch{}
+      let sz = 0;
+      try{ sz = fs.statSync(full).size || 0; staleBytes += sz; }catch{}
+      stale.push({ rel, full, size: sz });
     }
   }
   return { stale, staleBytes };
@@ -914,7 +915,17 @@ ipcMain.handle("mods:checkUpdates", async ()=>{
     staleBytes: staleInfo.staleBytes
   });
 
-  return { ok:true, localBase, staleFiles: staleInfo.stale.length, staleBytes: staleInfo.staleBytes, ...plan };
+  const plannedList = (plan.planned || []).map(it => ({
+    rel: path.relative(localBase, it.localPath).split(path.sep).join("/"),
+    size: Number(it.size||0),
+    modifiedAt: it.modifiedAt || null
+  }));
+  const staleList = (staleInfo.stale || []).map(it => ({
+    rel: String(it.rel || ""),
+    size: Number(it.size||0)
+  }));
+
+  return { ok:true, localBase, staleFiles: staleInfo.stale.length, staleBytes: staleInfo.staleBytes, plannedList, staleList, ...plan };
 });
 
 ipcMain.handle("mods:startDownload", async ()=>{
