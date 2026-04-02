@@ -190,10 +190,12 @@ document.getElementById("btnExit").addEventListener("click", () => window.close(
 
 // SETTINGS
 async function loadSettings(){
-  const el = document.getElementById("armaPathText");
+  const armaEl = document.getElementById("armaPathText");
+  const modsEl = document.getElementById("modsPathText");
   const res = await window.launcher.settingsGet();
   if (res?.ok){
-    el.textContent = res.settings.armaPath || "–";
+    armaEl.textContent = res.settings.armaPath || "–";
+    modsEl.textContent = res.settings.modsPath || res.settings.armaPath || "–";
     const o = res.settings.armaOptions || {};
     const set = (id,val)=>{ const e=document.getElementById(id); if(e) e.checked=!!val; };
     set("optNoSplash", o.noSplash);
@@ -205,20 +207,27 @@ async function loadSettings(){
     set("optNoPauseAudio", (o.noPauseAudio ?? true));
     set("optShowScriptErrors", o.showScriptErrors);
     set("optBeservice", (o.beservice ?? true));
+    set("optAutoConnect", (o.autoConnect ?? true));
     const extra=document.getElementById("optExtraParams");
     if (extra) extra.value = o.extraParams || "";
   }
 }
 
 document.getElementById("btnPickArma").addEventListener("click", async ()=>{
-  const r = await window.launcher.settingsPickFolder();
+  const r = await window.launcher.settingsPickFolder("Arma 3 Ordner auswählen");
   if (r?.ok && r.path){
     await window.launcher.settingsSetArmaPath(r.path);
     await loadSettings();
   }
 });
 
-
+document.getElementById("btnPickMods").addEventListener("click", async ()=>{
+  const r = await window.launcher.settingsPickFolder("Mods Installationsordner auswählen");
+  if (r?.ok && r.path){
+    await window.launcher.settingsSetModsPath(r.path);
+    await loadSettings();
+  }
+});
 
 const btnMoreParams = document.getElementById("btnMoreParams");
 if (btnMoreParams) btnMoreParams.addEventListener("click", ()=> alert("Weitere Startparameter: kommt als nächstes."));
@@ -729,6 +738,7 @@ function readArmaOptionsFromUI(){
     noPauseAudio: !!document.getElementById("optNoPauseAudio")?.checked,
     showScriptErrors: !!document.getElementById("optShowScriptErrors")?.checked,
     beservice: !!document.getElementById("optBeservice")?.checked,
+    autoConnect: !!document.getElementById("optAutoConnect")?.checked,
     extraParams: (document.getElementById("optExtraParams")?.value || "").trim()
   };
 }
@@ -765,7 +775,7 @@ const btnArma = document.getElementById("btnArmaStartSettings");
 if (btnArma) btnArma.addEventListener("click", ()=> startArma("@FiresideGaming_Test"));
 
 
-["optNoSplash","optSkipIntro","optWindow","optEnableHT","optHugePages","optNoPause","optNoPauseAudio","optShowScriptErrors","optBeservice","optExtraParams"]
+["optNoSplash","optSkipIntro","optWindow","optEnableHT","optHugePages","optNoPause","optNoPauseAudio","optShowScriptErrors","optBeservice","optAutoConnect","optExtraParams"]
   .map(id=>document.getElementById(id))
   .filter(Boolean)
   .forEach(el=>{
