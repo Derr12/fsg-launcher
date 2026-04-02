@@ -3,7 +3,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("launcher", {
   settingsGet: () => ipcRenderer.invoke("settings:get"),
   settingsSetArmaPath: (p) => ipcRenderer.invoke("settings:setArmaPath", p),
-  settingsPickFolder: () => ipcRenderer.invoke("settings:pickFolder"),
+  settingsSetModsPath: (p) => ipcRenderer.invoke("settings:setModsPath", p),
+  settingsPickFolder: (title) => ipcRenderer.invoke("settings:pickFolder", title),
   openPath: (p) => ipcRenderer.invoke("sys:openPath", p),
   openExternal: (url) => ipcRenderer.invoke("sys:openExternal", url),
   getConfig: () => ipcRenderer.invoke("config:get"),

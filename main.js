@@ -8,6 +8,18 @@ const http = require("http");
 const https = require("https");
 const ftp = require("basic-ftp");
 
+// ---------------- electron paths / cache fix ----------------
+const safeUserData = path.join(app.getPath("appData"), "FSG Launcher");
+try {
+  fs.mkdirSync(safeUserData, { recursive: true });
+  app.setPath("userData", safeUserData);
+} catch (e) {
+  console.error("[FSG] Konnte userData-Pfad nicht setzen:", e);
+}
+
+// Helps avoid GPU cache issues on some Windows systems with broken cache permissions.
+app.disableHardwareAcceleration();
+
 // ---------------- config ----------------
 const configPath = path.join(__dirname, "config.json");
 function getConfig(){
@@ -19,7 +31,7 @@ const config = getConfig();
 
 const settingsPath = path.join(app.getPath("userData"), "settings.json");
 function readJsonSafe(p, fallback){ try { return JSON.parse(fs.readFileSync(p,"utf-8")); } catch { return fallback; } }
-function getSettings(){ return readJsonSafe(settingsPath, { armaPath:"" }); }
+function getSettings(){ return readJsonSafe(settingsPath, { armaPath:"", modsPath:"" }); }
 function saveSettings(s){ fs.mkdirSync(path.dirname(settingsPath),{recursive:true}); fs.writeFileSync(settingsPath, JSON.stringify(s,null,2),"utf-8"); }
 
 function readRegValue(key, valueName) {
@@ -73,6 +85,9 @@ function getLocalAppData(){
 
 
 let win;
+let splash = null;
+let splashStartTs = 0;
+let splashTransitionRunning = false;
 let twitchView=null;
 let currentAutoChannel = null;
 let twitchDesiredVisible = false;
@@ -275,6 +290,75 @@ function setupAutoUpdater(){
   autoUpdater.on("update-downloaded", (info) => sendUpdateStatus({ state: "downloaded", info }));
   autoUpdater.on("error", (err) => sendUpdateStatus({ state: "error", error: String(err?.message || err) }));
 }
+function createSplash(){
+  splashStartTs = Date.now();
+  splash = new BrowserWindow({
+    width: 1500,
+    height: 860,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    alwaysOnTop: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    movable: true,
+    show: false,
+    center: true,
+    icon: path.join(__dirname, "assets", "icon.ico"),
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  splash.loadFile(path.join(__dirname, "splash.html"));
+  splash.once("ready-to-show", () => {
+    try{ splash.show(); }catch{}
+  });
+}
+
+function startSplashTransition(){
+  if (splashTransitionRunning) return;
+  splashTransitionRunning = true;
+
+  const hasSplash = splash && !splash.isDestroyed();
+  const hasWin = win && !win.isDestroyed();
+  if (!hasWin){
+    try{ if (hasSplash) splash.close(); }catch{}
+    splash = null;
+    return;
+  }
+
+  try { win.setOpacity(0); } catch {}
+  try { win.show(); } catch {}
+
+  if (!hasSplash){
+    try { win.setOpacity(1); } catch {}
+    splash = null;
+    return;
+  }
+
+  const durationMs = 520;
+  const stepMs = 16;
+  const startedAt = Date.now();
+
+  const timer = setInterval(() => {
+    const t = Math.min(1, (Date.now() - startedAt) / durationMs);
+    const eased = 1 - Math.pow(1 - t, 3);
+
+    try { if (win && !win.isDestroyed()) win.setOpacity(eased); } catch {}
+    try { if (splash && !splash.isDestroyed()) splash.setOpacity(1 - eased); } catch {}
+
+    if (t >= 1){
+      clearInterval(timer);
+      try { if (win && !win.isDestroyed()) { win.setOpacity(1); win.focus(); } } catch {}
+      try { if (splash && !splash.isDestroyed()) splash.close(); } catch {}
+      splash = null;
+    }
+  }, stepMs);
+}
+
 function createWindow(){
   win = new BrowserWindow({
     width:1500,
@@ -284,14 +368,24 @@ function createWindow(){
     backgroundColor:"#0b0c0e",
     title:"FSG Launcher",
     icon: path.join(__dirname,"assets","icon.ico"),
+    show: false,
     webPreferences:{
       preload: path.join(__dirname,"preload.js"),
       nodeIntegration:false,
       contextIsolation:true
     }
   });
+  try{ win.setOpacity(0); }catch{}
   win.removeMenu();
   win.loadFile(path.join(__dirname,"renderer","index.html"));
+
+  win.once("ready-to-show", () => {
+    const elapsed = Date.now() - splashStartTs;
+    const waitMs = Math.max(0, 3200 - elapsed);
+    setTimeout(() => {
+      startSplashTransition();
+    }, waitMs);
+  });
 
   win.webContents.on("did-finish-load", () => {
     sendTwitchStatus();
@@ -445,13 +539,15 @@ ipcMain.handle("settings:get", async ()=>{
     if(d){ s.armaPath=d; saveSettings(s); }
   }
   // beservice soll standardmäßig true sein, falls nicht gesetzt
+  if (typeof s.modsPath === "undefined") s.modsPath = "";
   if (!s.armaOptions) s.armaOptions = {};
   if (typeof s.armaOptions.beservice === "undefined") s.armaOptions.beservice = true;
+  if (typeof s.armaOptions.autoConnect === "undefined") s.armaOptions.autoConnect = true;
   return {ok:true, settings:s};
 });
 ipcMain.handle("settings:setArmaOptions", async (_e, opts)=>{
   const s=getSettings();
-  const defaults = { noPause:true, noPauseAudio:true, enableHT:false, hugePages:false, beservice:true };
+  const defaults = { noPause:true, noPauseAudio:true, enableHT:false, hugePages:false, beservice:true, autoConnect:true };
   s.armaOptions = Object.assign(defaults, s.armaOptions || {}, opts || {});
   saveSettings(s);
   return {ok:true};
@@ -463,8 +559,14 @@ ipcMain.handle("settings:setArmaPath", async (_e, p)=>{
   saveSettings(s);
   return {ok:true};
 });
-ipcMain.handle("settings:pickFolder", async ()=>{
-  const res=await dialog.showOpenDialog(win,{ title:"Arma 3 Ordner auswählen", properties:["openDirectory"]});
+ipcMain.handle("settings:setModsPath", async (_e, p)=>{
+  const s=getSettings();
+  s.modsPath=String(p||"");
+  saveSettings(s);
+  return {ok:true};
+});
+ipcMain.handle("settings:pickFolder", async (_e, title)=>{
+  const res=await dialog.showOpenDialog(win,{ title:String(title||"Ordner auswählen"), properties:["openDirectory"]});
   if(res.canceled||!res.filePaths?.length) return {ok:false};
   return {ok:true, path:res.filePaths[0]};
 });
@@ -512,6 +614,28 @@ function safeJoinPosix(a, b){
   const aa = String(a||"").replace(/\\/g,"/").replace(/\/+$/,"");
   const bb = String(b||"").replace(/\\/g,"/").replace(/^\/+/,"");
   return aa ? (aa + "/" + bb) : bb;
+}
+
+function getModsBasePath(settings, folderName){
+  const baseRoot = String(settings?.modsPath || settings?.armaPath || "").trim();
+  return baseRoot ? path.join(baseRoot, folderName) : "";
+}
+
+function buildModLaunchArg(settings, modFolder){
+  const folder = String(modFolder || "").trim();
+  if (!folder) return "";
+
+  const armaPath = String(settings?.armaPath || "").trim();
+  const modsPath = String(settings?.modsPath || "").trim();
+  if (!modsPath || !armaPath){
+    return folder;
+  }
+
+  const armaNorm = path.resolve(armaPath);
+  const modsNorm = path.resolve(modsPath);
+  if (armaNorm.toLowerCase() === modsNorm.toLowerCase()) return folder;
+
+  return path.join(modsNorm, folder);
 }
 
 async function listRemoteFilesRecursive(client, remoteDir){
@@ -845,7 +969,7 @@ ipcMain.handle("mods:localStatus", async ()=>{
 
     const ftpCfg = (config && config.ftp) ? config.ftp : null;
     const folderName = String(ftpCfg?.folder || "@FiresideGaming_Test");
-    const localBase = path.join(s.armaPath, folderName);
+    const localBase = getModsBasePath(s, folderName);
 
     if (!fs.existsSync(localBase)){
       return { ok:true, installed:false, localBase, reason:"folder_missing" };
@@ -894,7 +1018,7 @@ ipcMain.handle("mods:checkUpdates", async ()=>{
 
   const folderName = String(ftpCfg.folder || "@FiresideGaming_Test");
   const remoteBase = safeJoinPosix(ftpCfg.baseDir || "/", folderName);
-  const localBase = path.join(s.armaPath, folderName);
+  const localBase = getModsBasePath(s, folderName);
 
   const plan = await listAndPlanDownloads({ ftpCfg, remoteBase, localBase });
 
@@ -939,7 +1063,7 @@ ipcMain.handle("mods:startDownload", async ()=>{
 
   const folderName = String(ftpCfg.folder || "@FiresideGaming_Test");
   const remoteBase = safeJoinPosix(ftpCfg.baseDir || "/", folderName);
-  const localBase = path.join(s.armaPath, folderName);
+  const localBase = getModsBasePath(s, folderName);
 
   // 1) list + plan (skip files that are already up-to-date)
   const plan = await listAndPlanDownloads({ ftpCfg, remoteBase, localBase });
@@ -1018,7 +1142,13 @@ ipcMain.handle("mods:startDownload", async ()=>{
   return { ok:true, localBase };
 });
 app.whenReady().then(async () => {
+  try{
+    fs.mkdirSync(app.getPath("userData"), { recursive: true });
+  }catch(e){
+    console.error("[FSG] userData mkdir fehlgeschlagen:", e);
+  }
   setupAutoUpdater();
+  createSplash();
   createWindow();
 
   // Auto-select live Twitch channel (no dropdown)
@@ -1079,17 +1209,39 @@ function splitArgs(str){
 
 ipcMain.handle("arma:start", async (_e, payload)=>{
   try{
-    const s=getSettings();
+    const s = getSettings();
     if (!s.armaPath){
-      const d=detectArmaPath();
-      if (d){ s.armaPath=d; saveSettings(s); }
+      const d = detectArmaPath();
+      if (d){ s.armaPath = d; saveSettings(s); }
     }
+
     const options = payload?.options || s.armaOptions || {};
     const exe = resolveArmaExe(s.armaPath, { preferBattleyeLauncher: !!options.beservice });
-    if (!exe) return {ok:false, error:"Arma 3 Pfad ist nicht gesetzt oder arma3_x64.exe wurde nicht gefunden."};
+    if (!exe) return { ok:false, error:"Arma 3 Pfad ist nicht gesetzt oder arma3_x64.exe wurde nicht gefunden." };
 
-    const mod = payload?.mod || "@FiresideGaming_Test";
-    const args=[];
+    const ftpCfg = (config && config.ftp) ? config.ftp : null;
+    const defaultMod = String(ftpCfg?.folder || "@FiresideGaming_Test");
+    const mod = String(payload?.mod || defaultMod).trim() || defaultMod;
+
+    // Vor dem Start prüfen, ob das Modpack lokal wirklich installiert ist.
+    const modRoot = getModsBasePath(s, mod);
+    if (!modRoot || !fs.existsSync(modRoot)){
+      return { ok:false, error:"Modpack ist nicht installiert. Bitte installiere zuerst das Modpack auf der MODS-Seite." };
+    }
+
+    let modRootStat = null;
+    try{ modRootStat = fs.statSync(modRoot); }catch{}
+    if (!modRootStat || !modRootStat.isDirectory()){
+      return { ok:false, error:"Modpack ist nicht installiert. Bitte installiere zuerst das Modpack auf der MODS-Seite." };
+    }
+
+    const scan = findAnyPbo(modRoot);
+    if (!scan?.found){
+      return { ok:false, error:"Modpack ist nicht installiert. Bitte installiere zuerst das Modpack auf der MODS-Seite." };
+    }
+
+    const modArg = buildModLaunchArg(s, mod);
+    const args = [];
 
     if (options.noSplash) args.push("-nosplash");
     if (options.skipIntro) args.push("-skipIntro");
@@ -1099,15 +1251,27 @@ ipcMain.handle("arma:start", async (_e, payload)=>{
     if (options.noPause) args.push("-noPause");
     if (options.noPauseAudio) args.push("-noPauseAudio");
     if (options.showScriptErrors) args.push("-showScriptErrors");
-    if (mod) args.push(`-mod=${mod}`);
+    if (modArg) args.push(`-mod=${modArg}`);
+
+    const launcherCfg = getConfig();
+    const fixedServer = launcherCfg?.armaServer || {};
+    const serverAddress = String(fixedServer.address || "play.fireside-gaming.de").trim();
+    const serverPort = String(fixedServer.port || "2302").trim();
+    const serverPassword = String(fixedServer.password || "").trim();
+    if (options.autoConnect && serverAddress){
+      args.push(`-connect=${serverAddress}`);
+      if (serverPort) args.push(`-port=${serverPort}`);
+      if (serverPassword) args.push(`-password=${serverPassword}`);
+    }
+
     args.push(...splitArgs(options.extraParams || ""));
 
     // Must be last
     if (options.beservice) args.push("-beservice");
 
-    spawn(exe, args, {detached:true, stdio:"ignore"}).unref();
-    return {ok:true};
+    spawn(exe, args, { detached:true, stdio:"ignore" }).unref();
+    return { ok:true };
   }catch(err){
-    return {ok:false, error: (err && err.message) ? err.message : String(err)};
+    return { ok:false, error:(err && err.message) ? err.message : String(err) };
   }
 });
