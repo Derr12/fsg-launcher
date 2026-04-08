@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld("launcher", {
 
   // Teamspeak status via main (avoids CORS)
   teamspeakGetStatus: () => ipcRenderer.invoke("teamspeak:getStatus"),
+  changelogGet: () => ipcRenderer.invoke("changelog:get"),
   settingsSetArmaOptions: (opts) => ipcRenderer.invoke("settings:setArmaOptions", opts),
   armaStart: (payload) => ipcRenderer.invoke("arma:start", payload),
 

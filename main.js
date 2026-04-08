@@ -9,13 +9,27 @@ const https = require("https");
 const ftp = require("basic-ftp");
 
 // ---------------- electron paths / cache fix ----------------
-const safeUserData = path.join(app.getPath("appData"), "FSG Launcher");
+const safeRootData = path.join(app.getPath("appData"), "FSG Launcher");
+const safeSessionData = path.join(safeRootData, "SessionData");
+const safeDiskCache = path.join(safeSessionData, "Cache");
+const safeGpuCache = path.join(safeSessionData, "GPUCache");
+const safeCodeCache = path.join(safeSessionData, "Code Cache");
+
 try {
-  fs.mkdirSync(safeUserData, { recursive: true });
-  app.setPath("userData", safeUserData);
+  fs.mkdirSync(safeDiskCache, { recursive: true });
+  fs.mkdirSync(safeGpuCache, { recursive: true });
+  fs.mkdirSync(safeCodeCache, { recursive: true });
+  app.setPath("userData", safeRootData);
+  app.setPath("sessionData", safeSessionData);
 } catch (e) {
-  console.error("[FSG] Konnte userData-Pfad nicht setzen:", e);
+  console.error("[FSG] Konnte sichere Chromium-Pfade nicht setzen:", e);
 }
+
+// Force Chromium to use writable cache locations on Windows.
+app.commandLine.appendSwitch("disk-cache-dir", safeDiskCache);
+app.commandLine.appendSwitch("disk-cache-size", String(64 * 1024 * 1024));
+app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
+app.commandLine.appendSwitch("media-cache-size", "0");
 
 // Helps avoid GPU cache issues on some Windows systems with broken cache permissions.
 app.disableHardwareAcceleration();
@@ -428,7 +442,8 @@ function ensureTwitchView(){
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      partition: "twitch-temp"
     }
   });
   win.setBrowserView(twitchView);
@@ -506,6 +521,35 @@ ipcMain.handle("update:install", async () => {
   }
 });
 
+
+
+// Changelog API: fetched in main (avoids CORS/CSP issues)
+ipcMain.handle("changelog:get", async ()=>{
+  try{
+    const url = "https://api.fireside-gaming.de/changelog/api.php";
+    if (typeof fetch !== "function") return { ok:false, error:"fetch() nicht verfügbar" };
+
+    const ac = new AbortController();
+    const t = setTimeout(()=>ac.abort(), 8000);
+    const r = await fetch(url, { cache:"no-store", signal: ac.signal, headers: { "Accept": "application/json" } });
+    clearTimeout(t);
+
+    if (!r.ok) return { ok:false, error:`Changelog API HTTP ${r.status}` };
+    const data = await r.json();
+    const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+
+    return {
+      ok:true,
+      items: items.map((item, index) => ({
+        title: String(item?.title || `Changelog ${index + 1}`),
+        content_html: String(item?.content_html || item?.content || ""),
+        url: String(item?.url || "")
+      }))
+    };
+  }catch(e){
+    return { ok:false, error:String(e?.message || e) };
+  }
+});
 
 // Teamspeak status: fetched in main (avoids CORS/mixed-content issues)
 ipcMain.handle("teamspeak:getStatus", async ()=>{

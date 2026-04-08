@@ -33,6 +33,7 @@ const navButtons = Array.from(document.querySelectorAll(".navItem"));
 const pages = {
   home: document.getElementById("page-home"),
   mods: document.getElementById("page-mods"),
+  changelogs: document.getElementById("page-changelogs"),
   settings: document.getElementById("page-settings"),
   faq: document.getElementById("page-faq"),
 };
@@ -45,6 +46,7 @@ function setPage(key){
   Object.values(pages).forEach(p => p && p.classList.remove("active"));
   if (pages[key]) pages[key].classList.add("active");
   if (key === "settings") loadSettings();
+  if (key === "changelogs") loadChangelogs();
   if (key === "mods") {
     try{
       (async ()=>{
@@ -235,6 +237,169 @@ if (btnMoreParams) btnMoreParams.addEventListener("click", ()=> alert("Weitere S
 // initial
 loadSettings();
 
+
+
+function escapeHtml(value){
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizeChangelogHtml(html){
+  return String(html ?? "")
+    .replace(/<mark\b[^>]*>/gi, "")
+    .replace(/<\/mark>/gi, "")
+    .replace(/<font\b[^>]*color=[\"\'][^\"\']*[\"\'][^>]*>/gi, "<span>")
+    .replace(/<\/font>/gi, "</span>")
+    .replace(/\sstyle=(["\'])(.*?)\1/gi, (match, quote, css) => {
+      const cleaned = String(css)
+        .replace(/(?:^|;)\s*color\s*:[^;]+;?/gi, "")
+        .replace(/(?:^|;)\s*background(?:-color)?\s*:[^;]+;?/gi, "")
+        .replace(/(?:^|;)\s*box-shadow\s*:[^;]+;?/gi, "")
+        .replace(/(?:^|;)\s*border-color\s*:[^;]+;?/gi, "")
+        .trim()
+        .replace(/^;+|;+$/g, "");
+      return cleaned ? ` style=${quote}${cleaned}${quote}` : "";
+    });
+}
+
+let cachedChangelogItems = [];
+
+async function openConfiguredLink(key){
+  let cfg = null;
+  try{ cfg = await window.launcher?.getConfig?.(); }catch{ cfg = null; }
+  const links = cfg?.config?.links || {};
+  const url = String(links?.[key] || '').trim();
+  if (!url){
+    alert(`Link fehlt in config.json: links.${key}`);
+    return;
+  }
+  const res = await window.launcher?.openExternal?.(url);
+  if (!res?.ok) alert(res?.error || 'Konnte Link nicht öffnen.');
+}
+
+function renderRecentChangelogs(entries){
+  const status = document.getElementById('recentChangelogsStatus') || document.getElementById('latestChangelogStatus');
+  const list = document.getElementById('recentChangelogsList') || document.getElementById('latestChangelogList');
+  if (!status || !list) return;
+
+  list.innerHTML = '';
+  const items = Array.isArray(entries) ? entries.slice(0, 5) : [];
+  if (!items.length){
+    status.textContent = 'Keine Changelogs gefunden.';
+    return;
+  }
+  status.textContent = '';
+
+  items.forEach((item, index) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'recentChangelogBtn';
+    btn.innerHTML = `<div class="recentChangelogBtnTitle">${escapeHtml(item?.title || `Changelog ${index + 1}`)}</div>`;
+    btn.addEventListener('click', () => {
+      setPage('changelogs');
+      loadChangelogs(index);
+    });
+    list.appendChild(btn);
+  });
+}
+
+function renderChangelogs(entries){
+  cachedChangelogItems = Array.isArray(entries) ? entries : [];
+  renderRecentChangelogs(cachedChangelogItems);
+  const container = document.getElementById("changelogContainer");
+  const status = document.getElementById("changelogStatus");
+  if (!container || !status) return;
+
+  container.innerHTML = "";
+
+  if (!Array.isArray(entries) || !entries.length){
+    status.textContent = "Keine Changelogs gefunden.";
+    return;
+  }
+
+  status.textContent = "";
+
+  entries.forEach((log, index) => {
+    const item = document.createElement("div");
+    item.className = "changelogItem";
+
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "changelogHeader" + (index === 0 ? " open" : "");
+    header.innerHTML = `<span>${escapeHtml(log.title || "Ohne Titel")}</span><span class="changelogArrow">▸</span>`;
+
+    const body = document.createElement("div");
+    body.className = "changelogBody" + (index === 0 ? " open" : "");
+
+    const content = document.createElement("div");
+    content.className = "changelogContent";
+    content.innerHTML = sanitizeChangelogHtml(log.content_html || log.content || "<p>Kein Inhalt vorhanden.</p>");
+    body.appendChild(content);
+
+    if (index === 0){
+      body.style.maxHeight = "1200px";
+    } else {
+      body.style.maxHeight = "0px";
+    }
+
+    header.addEventListener("click", () => {
+      const isOpen = header.classList.contains("open");
+
+      document.querySelectorAll(".changelogHeader").forEach(el => el.classList.remove("open"));
+      document.querySelectorAll(".changelogBody").forEach(el => {
+        el.classList.remove("open");
+        el.style.maxHeight = "0px";
+      });
+
+      if (!isOpen){
+        header.classList.add("open");
+        body.classList.add("open");
+        body.style.maxHeight = body.scrollHeight + "px";
+      }
+    });
+
+    item.appendChild(header);
+    item.appendChild(body);
+    container.appendChild(item);
+
+    if (index === 0){
+      requestAnimationFrame(() => {
+        body.style.maxHeight = body.scrollHeight + "px";
+      });
+    }
+  });
+}
+
+async function loadChangelogs(openIndex = null){
+  const status = document.getElementById("changelogStatus");
+  const container = document.getElementById("changelogContainer");
+  const recentStatus = document.getElementById('recentChangelogsStatus') || document.getElementById('latestChangelogStatus');
+  const recentList = document.getElementById('recentChangelogsList') || document.getElementById('latestChangelogList');
+  if (!window.launcher?.changelogGet) return;
+
+  if (status) status.textContent = "";
+  if (container) container.innerHTML = "";
+  if (recentStatus) recentStatus.textContent = 'Lade Changelogs…';
+  if (recentList) recentList.innerHTML = '';
+
+  try{
+    const res = await window.launcher.changelogGet();
+    if (!res?.ok) throw new Error(res?.error || "Changelogs konnten nicht geladen werden.");
+    renderChangelogs(res.items || []);
+    if (typeof openIndex === 'number') {
+      requestAnimationFrame(() => openChangelogByIndex(openIndex));
+    }
+  }catch(err){
+    const msg = `Fehler beim Laden: ${err?.message || err}`;
+    if (status) status.textContent = msg;
+    if (recentStatus) recentStatus.textContent = msg;
+  }
+}
+
 // ---------------- Quick links (Blog/Forum/Discord/Wiki) ----------------
 async function wireQuickLinks(){
   const cards = Array.from(document.querySelectorAll('.quickCard[data-link]'));
@@ -259,6 +424,14 @@ async function wireQuickLinks(){
   });
 }
 wireQuickLinks();
+const btnReloadChangelogs = document.getElementById("btnReloadChangelogs");
+if (btnReloadChangelogs) btnReloadChangelogs.addEventListener("click", loadChangelogs);
+
+Array.from(document.querySelectorAll('[data-social-link]')).forEach(btn => {
+  btn.addEventListener('click', () => openConfiguredLink(btn.dataset.socialLink));
+});
+
+loadChangelogs();
 
 
 function wireExternalAnchors(){
